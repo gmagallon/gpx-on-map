@@ -1,0 +1,113 @@
+<astro-header>
+    <div style="display:flex; align-items: center; padding: 0.5em 1em ">
+        <div style="flex:1;display:flex;">
+            <label for="file-selector">Visualiser un fichier GPX:</label>
+            <input
+                type="file"
+                class="file-selector"
+                accept=".gpx"
+                style="flex:1; margin-left: 1em;"
+            />
+        </div>
+        <div class="steps-container" style="display:flex; align-items: center;">
+            <label for="steps" style="margin-right: 0.5em">Etapes</label>
+            <select class="steps">
+            </select>
+        </div>
+        <div class="line-height-container" style="display:flex; align-items: center; margin-left: 1em;">
+            <label for="lineHeight">Taille de ligne</label>
+            <input
+                type="range"
+                class="line-height"
+                name="lineHeight"
+                min="1"
+                max="12"
+            />
+        </div>
+        <div class="line-color-container" style="display:flex; align-items: center; margin-left: 1em;">
+            <label for="lineColor">Couleur</label>
+            <input type="color" class="line-color" name="lineColor" />
+        </div>
+    </div>
+</astro-header>
+
+<script>
+    import { $lineWeight, $lineColor, loadGPX, $gpx, $gpxInfos, $currentStep } from "../stores/state";
+
+    class AstroHeader extends HTMLElement {
+        constructor() {
+            super();
+
+            const fileElement = this.querySelector(".file-selector");
+            fileElement.addEventListener("change", (event) => {
+                const fileList = event.target.files;
+                loadGPX(fileList[0]);
+            });
+
+            const lineColorElement = this.querySelector(".line-color");
+            lineColorElement.value = $lineColor.get();
+            lineColorElement.addEventListener("input", (event) => {
+                $lineColor.set(event.target.value);
+            });
+
+            const lineHeightElement = this.querySelector(".line-height");
+            lineHeightElement.value = $lineWeight.get();
+            lineHeightElement.addEventListener("change", (event) => {
+                $lineWeight.set(event.target.value);
+            });
+
+            const stepsElement = this.querySelector(".steps");
+            stepsElement.addEventListener("change", (event) => {
+                const gpxInfos = $gpxInfos.get();
+                const selected = gpxInfos.tracks.find(t => `${t.id}` === event.target.value);
+                if(!selected && event.target.value === '-1') $currentStep.set(gpxInfos);
+                else $currentStep.set(selected);
+            });
+
+            $gpx.subscribe((gpx) => {
+                const lineHeightContainer = this.querySelector(
+                    ".line-height-container"
+                );
+                if (!gpx) {
+                    lineHeightContainer.style.display = "none";
+                } else {
+                    lineHeightContainer.style.display = "block";
+                }
+
+                const lineColorContainer = this.querySelector(
+                    ".line-color-container"
+                );
+                if (!gpx) {
+                    lineColorContainer.style.display = "none";
+                } else {
+                    lineColorContainer.style.display = "block";
+                }
+            });
+
+            $gpxInfos.subscribe((gpxInfos) => {
+                const stepsContainer = this.querySelector(".steps-container");
+                if (!gpxInfos || gpxInfos.tracks.length < 2) {
+                    stepsContainer.style.display = "none";
+                } else {
+                    stepsContainer.style.display = "block";
+                }
+
+                const stepsElement = this.querySelector(".steps");
+                stepsElement.innerHTML = "";
+                if (gpxInfos?.tracks?.length > 1) {
+                    ([gpxInfos].concat(gpxInfos.tracks)).forEach((step) => {
+                        const option = document.createElement("option");
+                        option.value = `${step.id}`;
+                        option.innerText = step.name;
+                        stepsElement.appendChild(option);
+                    });
+                    $currentStep.set(gpxInfos);
+                } else if (gpxInfos) {
+                    $currentStep.set(gpxInfos);
+                }
+            });
+        }
+    }
+
+    customElements.define("astro-header", AstroHeader);
+</script>

@@ -1,0 +1,328 @@
+---
+import "leaflet/dist/leaflet.css";
+---
+
+<astro-map>
+    <div class="map"></div>
+</astro-map>
+
+<style is:global>
+    .leaflet-control-rotate-left-btn {
+        background-image: url(/images/rotate-left.png);
+        cursor: pointer;
+    }
+
+    .leaflet-control-rotate-right-btn {
+        background-image: url(/images/rotate-right.png);
+        cursor: pointer;
+    }
+
+    .leaflet-control-fit-gpx-btn {
+        background-image: url(/images/target.png);
+        cursor: pointer;
+    }
+
+    .leaflet-gpx-infos {
+        background-color: white;
+        border-radius: 10px;
+        padding: 5px;
+    }
+
+    .leaflet-gpx-infos-distance {
+        text-align: right;
+        padding: 5px;
+    }
+
+    .leaflet-gpx-infos-canvas-container {
+        max-width: 400px;
+    }
+</style>
+
+<style>
+    .map {
+        height: 100%;
+    }
+</style>
+
+<script>
+    import L from "leaflet";
+    import "leaflet-gpx";
+    import "leaflet-rotate";
+    import "leaflet-simple-map-screenshoter";
+    import {
+        $lineColor,
+        $lineWeight,
+        $gpx,
+        $currentStep,
+    } from "../stores/state";
+    import Chart from "chart.js/auto";
+
+    function layerUrl(key, layer) {
+        return (
+            "https://wxs.ign.fr/" +
+            key +
+            "/geoportail/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&" +
+            "LAYER=" +
+            layer +
+            "&STYLE=normal&TILEMATRIXSET=PM&" +
+            "TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&FORMAT=image%2Fjpeg"
+        );
+    }
+
+    class AstroMap extends HTMLElement {
+        constructor() {
+            super();
+
+            const layerIgn = L.tileLayer(
+                layerUrl(
+                    import.meta.env.PUBLIC_IGN_KEY,
+                    "GEOGRAPHICALGRIDSYSTEMS.MAPS"
+                ),
+                {
+                    attribution: '&copy; <a href="http://www.ign.fr/">IGN</a>',
+                }
+            );
+
+            const layerOsm = L.tileLayer(
+                "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+                {
+                    attribution:
+                        '&copy; <a href="http://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="http://www.onlinewebfonts.com">oNline Web Fonts</a>',
+                }
+            );
+
+            const map = L.map(this.querySelector(".map"), {
+                layers: [layerOsm, layerIgn],
+                zoom: 15,
+                center: [48.928386, 2.897243],
+                rotate: true,
+                rotateControl: {
+                    closeOnZeroBearing: false,
+                    position: "bottomleft",
+                },
+            });
+
+            const baseMaps = {
+                IGN: layerIgn,
+                OpenStreetMap: layerOsm,
+            };
+
+            L.control.layers(baseMaps).addTo(map);
+
+            const RotateMap = L.Control.extend({
+                onAdd: function (map) {
+                    const div = L.DomUtil.create(
+                        "div",
+                        "leaflet-control-rotate leaflet-bar"
+                    );
+                    const left = L.DomUtil.create(
+                        "a",
+                        "leaflet-control-rotate-left-btn",
+                        div
+                    );
+                    const right = L.DomUtil.create(
+                        "a",
+                        "leaflet-control-rotate-right-btn",
+                        div
+                    );
+                    return div;
+                },
+                options: {
+                    position: "topleft",
+                },
+            });
+
+            const rotateMap = new RotateMap().addTo(map);
+
+            L.simpleMapScreenshoter().addTo(map);
+
+            const FitGPX = L.Control.extend({
+                onAdd: function (map) {
+                    const div = L.DomUtil.create(
+                        "div",
+                        "leaflet-control-fit-gpx leaflet-bar"
+                    );
+                    L.DomUtil.create("a", "leaflet-control-fit-gpx-btn", div);
+                    return div;
+                },
+                options: {
+                    position: "topleft",
+                },
+            });
+
+            const fitGPX = new FitGPX().addTo(map);
+
+            const GPXInfos = L.Control.extend({
+                onAdd: function () {
+                    const infos = L.DomUtil.create("div", "leaflet-gpx-infos");
+
+                    const distance = L.DomUtil.create(
+                        "div",
+                        "leaflet-gpx-infos-distance",
+                        infos
+                    );
+
+                    const canvasContainer = L.DomUtil.create(
+                        "div",
+                        "leaflet-gpx-infos-canvas-container",
+                        infos
+                    );
+
+                    L.DomUtil.create(
+                        "canvas",
+                        "leaflet-gpx-infos-canvas",
+                        canvasContainer
+                    );
+
+                    return infos;
+                },
+                options: {
+                    position: "bottomright",
+                },
+            });
+
+            const gpxInfos = new GPXInfos().addTo(map);
+
+            this.querySelector(
+                ".leaflet-control-rotate-right-btn"
+            ).addEventListener("click", function (e) {
+                const bearing = `${map.getBearing()}`;
+                if (bearing === "0") map.setBearing(90);
+                if (bearing.startsWith("9")) map.setBearing(180);
+                if (bearing.startsWith("18")) map.setBearing(270);
+                if (bearing.startsWith("27")) map.setBearing(0);
+            });
+
+            this.querySelector(
+                ".leaflet-control-rotate-left-btn"
+            ).addEventListener("click", function (e) {
+                const bearing = `${map.getBearing()}`;
+                if (bearing === "0") map.setBearing(270);
+                if (bearing.startsWith("9")) map.setBearing(0);
+                if (bearing.startsWith("18")) map.setBearing(90);
+                if (bearing.startsWith("27")) map.setBearing(180);
+            });
+
+            let gpxLayer = null;
+            $gpx.listen((content) => {
+                if (content) {
+                    gpxLayer = new L.GPX(content, {
+                        async: true,
+                        marker_options: {
+                            startIconUrl: "images/pin-icon-start.svg",
+                            endIconUrl: "images/pin-icon-end.svg",
+                            shadowUrl: "images/marker-shadow.svg",
+                        },
+                        polyline_options: {
+                            color: $lineColor.get(),
+                            opacity: 0.75,
+                            weight: $lineWeight.get(),
+                            lineCap: "round",
+                        },
+                    }).addTo(map);
+                }
+            });
+
+            let chart = null;
+            let shapeFn = null;
+            $currentStep.listen((infos) => {
+                // TODO: clear all listeners
+                if(shapeFn) {
+                    this.querySelector(
+                        ".leaflet-control-fit-gpx-btn"
+                    ).removeEventListener("click", shapeFn);
+                    shapeFn = null;
+                }
+
+                if (!infos) return;
+
+                if (infos.distance) {
+                    this.querySelector(
+                        ".leaflet-gpx-infos-distance"
+                    ).innerHTML = `Distance : ${(infos.distance / 1000).toFixed(
+                        1
+                    )} km`;
+                } else {
+                    this.querySelector(
+                        ".leaflet-gpx-infos-distance"
+                    ).innerHTML = "";
+                }
+
+                if (infos.shape) {
+                    const { minLat, minLng, maxLat, maxLng } = infos.shape;
+
+                    shapeFn = function (e) {
+                        map.flyToBounds([
+                            [minLat, minLng],
+                            [maxLat, maxLng],
+                        ]);
+                    };
+
+                    this.querySelector(
+                        ".leaflet-control-fit-gpx-btn"
+                    ).addEventListener("click", shapeFn);
+
+                    map.flyToBounds([
+                        [minLat, minLng],
+                        [maxLat, maxLng],
+                    ]);
+                }
+
+                const canvasContainer = this.querySelector(
+                        ".leaflet-gpx-infos-canvas"
+                    );
+                if (!infos.chart) {
+                    canvasContainer.style.display = "none";
+                } else {
+                    canvasContainer.style.display = "block";
+
+                    if (chart) chart.destroy();
+
+                    chart = new Chart(
+                        this.querySelector(".leaflet-gpx-infos-canvas"),
+                        {
+                            type: "line",
+                            data: infos.chart,
+                            parsing: {
+                                key: "ele",
+                            },
+                        }
+                    );
+                }
+            });
+
+            $gpx.subscribe((gpx) => {
+                const fitButton = this.querySelector(
+                    ".leaflet-control-fit-gpx"
+                );
+                if (!gpx) {
+                    fitButton.style.display = "none";
+                } else {
+                    fitButton.style.display = "block";
+                }
+                const infosContainer = this.querySelector(".leaflet-gpx-infos");
+                if (!gpx) {
+                    infosContainer.style.display = "none";
+                } else {
+                    infosContainer.style.display = "block";
+                }
+            });
+
+            $lineWeight.listen((lineWeight) => {
+                if (gpxLayer) {
+                    gpxLayer.options.polyline_options.weight = lineWeight;
+                    gpxLayer.reload();
+                }
+            });
+
+            $lineColor.listen((color) => {
+                if (gpxLayer) {
+                    gpxLayer.options.polyline_options.color = color;
+                    gpxLayer.reload();
+                }
+            });
+        }
+    }
+
+    customElements.define("astro-map", AstroMap);
+</script>
