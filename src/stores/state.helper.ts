@@ -1,9 +1,3 @@
-function degreesToRadians(degrees) {
-    var radians = (degrees * Math.PI) / 180;
-    return radians;
-}
-
-
 export function getTreksIntervalsValues(points) {
 
     let count = 0;
